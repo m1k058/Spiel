@@ -16,17 +16,33 @@ public class ServerApp<T extends Remote>
 {
     public static void startRegistry() throws RemoteException
     {
-        LocateRegistry.createRegistry( Registry.REGISTRY_PORT);
-        RemoteServer.setLog( System.err);
+        try {
+            LocateRegistry.createRegistry(Registry.REGISTRY_PORT);
+            System.out.println("RMI-Registry gestartet auf Port " + Registry.REGISTRY_PORT + ".");
+        } catch (RemoteException ex) {
+            // Prüfen, ob bereits eine Registry aktiv ist.
+            LocateRegistry.getRegistry().list();
+            System.out.println("Existierende RMI-Registry wird verwendet.");
+        }
+        RemoteServer.setLog(System.err);
     }
 
     public static void main(String [] arg)
     {
         try{
+            startRegistry();
             new ObjectServer<ISpiel>(new Spiel());
+            System.out.println("Spielserver bereit. Logischer Name: '" + Spiel.class.getName() + "'.");
+            // Hauptthread blockieren, damit die Anwendung aktiv bleibt.
+            synchronized (ServerApp.class) {
+                ServerApp.class.wait();
+            }
         }
         catch(RemoteException re){
             re.printStackTrace();
+        }
+        catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
     }
 }

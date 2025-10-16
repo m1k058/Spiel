@@ -1,39 +1,46 @@
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.rmi.RemoteException;
 import java.util.HashMap;
 
 /**
  * Dies ist die Hauptklasse der Anwendung "Rette das Neuland".
  * "Rette das Neuland" ist ein sehr einfaches, textbasiertes
  * Strategie-Game. Ein Spieler kann sich in einer Umgebung bewegen,
- * Gegenstände aufheben und Anlagen bauen, um das fiktive Neuland zu retten.
+ * GegenstÃ¤nde aufheben und Anlagen bauen, um das fiktive Neuland zu retten.
  * * Zum Spielen muss eine Instanz dieser Klasse erzeugt werden und
  * an ihr die Methode "spielen" aufgerufen werden.
  * * Diese Instanz dieser Klasse erzeugt und initialisiert alle
- * anderen Objekte der Anwendung: Sie legt alle Räume und Regionen
- * über die Spielumgebung-Klasse an, erzeugt einen Parser
+ * anderen Objekte der Anwendung: Sie legt alle RÃ¤ume und Regionen
+ * Ã¼ber die Spielumgebung-Klasse an, erzeugt einen Parser
  * sowie einen Spieler und startet das Spiel. Sie wertet auch die Befehle
- * aus, die der Parser liefert, und sorgt für ihre Ausführung.
+ * aus, die der Parser liefert, und sorgt fÃ¼r ihre AusfÃ¼hrung.
  * 
- * @author  Michael Kölling, David J. Barnes, Michal Kos und Cedric Wilke
+ * @author  Michael KÃ¶lling, David J. Barnes, Michal Kos und Cedric Wilke
  * @version 05.06.2025
  */
 
 class Spiel implements ISpiel
 {
-    private Parser parser;  // Verantwortlich für das Einlesen und Interpretieren von Benutzereingaben.
+    private Parser parser;  // Verantwortlich fÃ¼r das Einlesen und Interpretieren von Benutzereingaben.
     private Spieler spieler;    // Das Spieler-Objekt, das das Inventar und Geld des Spielers verwaltet.
 
-    private Spielumgebung spielumgebung;    // Hält die gesamte Spielwelt, geladen aus einer JSON-Datei.
+    private Spielumgebung spielumgebung;    // HÃ¤lt die gesamte Spielwelt, geladen aus einer JSON-Datei.
     private Region aktuelleRegion;  // Die Region, in der sich der Spieler aktuell befindet.
     private Raum aktuellerRaum; // Der genaue Raum, in dem sich der Spieler aktuell befindet.
 
     private int gesamtSolaranlagen; // Gesamtzahl der gebauten Solaranlagen im Spiel.
     private int gesamtWindanlagen;  // Gesamtzahl der gebauten Windanlagen im Spiel.
-    private int einkommenMultiplikator; // Faktor, der das Einkommen pro Reise bestimmt. Erhöht sich durch den Bau von Anlagen.
+    private int einkommenMultiplikator; // Faktor, der das Einkommen pro Reise bestimmt. ErhÃ¶ht sich durch den Bau von Anlagen.
     private int punkte; // Aktuelle Punktzahl des Spielers.
-    private int zugfahrtenCount;    // Zählt die Anzahl der Reisen, um eine Spielzeitbegrenzung zu implementieren.
+    private int zugfahrtenCount;    // ZÃ¤hlt die Anzahl der Reisen, um eine Spielzeitbegrenzung zu implementieren.
     
     // GUI-Referenz, um Bild nach Raumwechsel zu aktualisieren
     private SpielGUI gui;
+
+    private boolean gestartet;
+    private boolean beendet;
 
      /**
      * Erzeugt ein neues Spiel und initialisiert die interne Raumkarte sowie den Spieler.
@@ -48,7 +55,7 @@ class Spiel implements ISpiel
             spielumgebung = new Spielumgebung("map_v2.json");
         } catch (Exception e) {
             System.err.println("Kritischer Fehler beim Laden der Spielumgebung: " + e.getMessage());
-            System.err.println("Das Spiel kann nicht gestartet werden. Bitte überprüfe die Datei 'map_v2.json'.");
+            System.err.println("Das Spiel kann nicht gestartet werden. Bitte Ã¼berprÃ¼fe die Datei 'map_v2.json'.");
         }
         // Setzt die Startposition des Spielers.
         aktuelleRegion = spielumgebung.gibRegion("Westseekueste");
@@ -60,10 +67,11 @@ class Spiel implements ISpiel
         gesamtWindanlagen = 0;
         punkte = 0;
         zugfahrtenCount = 0;
-        
-        
+
+        gestartet = false;
+        beendet = false;
     }
-    
+
     public Region getAktuelleRegion() {
         return aktuelleRegion;
     }
@@ -76,37 +84,126 @@ class Spiel implements ISpiel
     }
 
     /**
-     * Die Hauptmethode des Spiels. Führt eine Endlosschleife aus,
+     * Die Hauptmethode des Spiels. FÃ¼hrt eine Endlosschleife aus,
      * die auf Benutzereingaben wartet, diese verarbeitet und den Spielzustand
      * aktualisiert, bis eine Endbedingung erreicht ist.
      */
-    public void spielen() 
-    {            
+    public void spielen()
+    {
         // Initialisierung der GUI
         SpielGUI gui = new SpielGUI();
         setGui(gui);
-        
-        willkommenstextAusgeben();
 
-        // Die Hauptschleife. Hier lesen wir wiederholt Befehle ein
-        // und fuehren sie aus, bis das Spiel beendet wird.
-
-        boolean beendet = false;
-        while (! beendet) {
-            Befehl befehl = parser.liefereBefehl();
-            
-            beendet = verarbeiteBefehl(befehl);
-            // Nach jedem Befehl wird geprüft, ob eine Gewinn- oder Verlustbedingung erfüllt ist.
-            if(beendet == false)
-            {
-                 beendet = testGewinn();   
+        try {
+            System.out.print(start());
+            while (!istBeendet()) {
+                Befehl befehl = parser.liefereBefehl();
+                String antwort = verarbeiteBefehlIntern(befehl);
+                System.out.print(antwort);
             }
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
         }
-        System.out.println("Danke fuer dieses Spiel. Auf Wiedersehen.");
+    }
+
+    @Override
+    public synchronized String start() throws RemoteException
+    {
+        return sammleAusgabe(() -> {
+            if (beendet) {
+                System.out.println("Das Spiel ist bereits beendet. Bitte starten Sie den Server neu, um erneut zu spielen.");
+                return;
+            }
+
+            if (!gestartet) {
+                gestartet = true;
+                willkommenstextAusgeben();
+            } else {
+                raumInfoAusgeben();
+            }
+        });
+    }
+
+    @Override
+    public synchronized String verarbeiteBefehl(String eingabe) throws RemoteException
+    {
+        Befehl befehl = parser.liefereBefehl(eingabe);
+        return verarbeiteBefehlIntern(befehl);
+    }
+
+    private synchronized String verarbeiteBefehlIntern(Befehl befehl)
+    {
+        return sammleAusgabe(() -> {
+            if (!gestartet) {
+                System.out.println("Spiel wurde noch nicht gestartet. Bitte zuerst start() aufrufen.");
+                return;
+            }
+
+            if (beendet) {
+                System.out.println("Das Spiel ist bereits beendet.");
+                return;
+            }
+
+            boolean moechteBeenden = verarbeiteBefehl(befehl);
+            if(!moechteBeenden) {
+                moechteBeenden = testGewinn();
+            }
+            if(moechteBeenden) {
+                beendet = true;
+                System.out.println("Danke fuer dieses Spiel. Auf Wiedersehen.");
+            }
+        });
+    }
+
+    @Override
+    public synchronized boolean istBeendet() throws RemoteException
+    {
+        return beendet;
+    }
+
+    private String sammleAusgabe(Runnable aktion)
+    {
+        StringBuilder ausgabe = new StringBuilder();
+        PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
+        PrintStream sammler = new PrintStream(new StringBuilderOutputStream(ausgabe), true);
+        try {
+            System.setOut(sammler);
+            System.setErr(sammler);
+            aktion.run();
+        } finally {
+            sammler.flush();
+            System.setOut(originalOut);
+            System.setErr(originalErr);
+            sammler.close();
+        }
+        return ausgabe.toString();
+    }
+
+    private static class StringBuilderOutputStream extends OutputStream
+    {
+        private final StringBuilder builder;
+
+        private StringBuilderOutputStream(StringBuilder builder)
+        {
+            this.builder = builder;
+        }
+
+        @Override
+        public void write(int b)
+        {
+            builder.append((char) b);
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len)
+        {
+            builder.append(new String(b, off, len, StandardCharsets.UTF_8));
+        }
     }
 
     /**
-     * Prüft, ob die Gewinn- oder Verlustbedingungen des Spiels erfüllt sind.
+     * PrÃ¼ft, ob die Gewinn- oder Verlustbedingungen des Spiels erfÃ¼llt sind.
      * Gewinn: 100 oder mehr Punkte.
      * Verlust: 50 oder mehr Reisen unternommen.
      *
@@ -129,7 +226,7 @@ class Spiel implements ISpiel
 
     
     /**
-     * Gibt eine Willkommensnachricht und die anfänglichen Spielinformationen aus.
+     * Gibt eine Willkommensnachricht und die anfÃ¤nglichen Spielinformationen aus.
      */
     private void willkommenstextAusgeben()
     {
@@ -143,9 +240,9 @@ class Spiel implements ISpiel
     }
 
      /**
-     * Gibt alle relevanten Informationen über den aktuellen Standort des Spielers aus.
-     * Dazu gehören der aktuelle Spielstand (Geld, Punkte), das Inventar, die Beschreibung
-     * des Raumes und der Region sowie mögliche Ausgänge.
+     * Gibt alle relevanten Informationen Ã¼ber den aktuellen Standort des Spielers aus.
+     * Dazu gehÃ¶ren der aktuelle Spielstand (Geld, Punkte), das Inventar, die Beschreibung
+     * des Raumes und der Region sowie mÃ¶gliche AusgÃ¤nge.
      */
     private void raumInfoAusgeben() {
         System.out.println();
@@ -160,7 +257,7 @@ class Spiel implements ISpiel
         System.out.println("Du befindest dich " + aktuellerRaum.gibBeschreibung() + 
             " in der Region '" + aktuelleRegion.gibBeschreibung() + "'.");
 
-        // Zeige Regionsausgänge nur, wenn der Raum ein TravelRaum ist
+        // Zeige RegionsausgÃ¤nge nur, wenn der Raum ein TravelRaum ist
         if (aktuellerRaum instanceof TravelRaum) {
             if (aktuellerRaum.gibKategorie() == Raumkategorie.BAHNHOF) { //
                 System.out.println("\nVon dieser Region '" + aktuelleRegion.gibBeschreibung() +
@@ -176,7 +273,7 @@ class Spiel implements ISpiel
             BauRaum bauRaum = (BauRaum) aktuellerRaum;
             System.out.println(bauRaum.gibAnlagenString());
         } 
-        // Zeigt die Ausgänge zu benachbarten Räumen innerhalb der aktuellen Region.
+        // Zeigt die AusgÃ¤nge zu benachbarten RÃ¤umen innerhalb der aktuellen Region.
         System.out.print(aktuellerRaum.gibRaumInfoString());               
         System.out.println("------------------------------------------------------------------------------------------");
     }
@@ -186,7 +283,7 @@ class Spiel implements ISpiel
      * @param befehl Der zu verarbeitende Befehl.
      * @return `true`, wenn der Befehl das Spiel beendet, ansonsten `false`.
      */
-    public boolean verarbeiteBefehl(Befehl befehl) 
+    public boolean verarbeiteBefehl(Befehl befehl)
     {
         boolean moechteBeenden = false;
 
@@ -226,7 +323,7 @@ class Spiel implements ISpiel
     }
 
     /**
-     * Gibt eine einfache Hilfestellung und eine Liste der verfügbaren Befehlswörter aus.
+     * Gibt eine einfache Hilfestellung und eine Liste der verfÃ¼gbaren BefehlswÃ¶rter aus.
      */
     private void hilfstextAusgeben() 
     {
@@ -238,7 +335,7 @@ class Spiel implements ISpiel
 
     /**
      * Versucht, den Spieler in einen benachbarten Raum innerhalb der aktuellen Region zu bewegen.
-     * @param befehl Der Befehl, der die Richtungsinformation enthält (z.B. "gehe norden").
+     * @param befehl Der Befehl, der die Richtungsinformation enthÃ¤lt (z.B. "gehe norden").
      */
     private void wechsleRaumInnerhalbRegion(Befehl befehl) {
         if (!befehl.hatZweitesWort()) {
@@ -260,11 +357,11 @@ class Spiel implements ISpiel
 
     /**
      * Versucht, den Spieler in eine andere Region zu bewegen (Reisen).
-     * Dies ist nur von bestimmten Räumen aus möglich (Bahnhof, Autobahn).
-     * @param befehl Der Befehl, der die Zielregion enthält (z.B. "fahre Voltavia").
+     * Dies ist nur von bestimmten RÃ¤umen aus mÃ¶glich (Bahnhof, Autobahn).
+     * @param befehl Der Befehl, der die Zielregion enthÃ¤lt (z.B. "fahre Voltavia").
      */
     private void wechsleInAndereRegion(Befehl befehl) {
-        // Prüft, ob der aktuelle Raum das Reisen überhaupt erlaubt.
+        // PrÃ¼ft, ob der aktuelle Raum das Reisen Ã¼berhaupt erlaubt.
         if (!(aktuellerRaum instanceof TravelRaum)) {
             System.out.println("Von hier ("+ aktuellerRaum.gibBeschreibung() +") aus kannst du nicht reisen.");
             return;
@@ -273,13 +370,13 @@ class Spiel implements ISpiel
 
         // Gibt Hilfe, wenn keine Zielregion angegeben wurde.
         if (!befehl.hatZweitesWort()) { //
-            System.out.println("Wohin möchtest du fahren?");
-            // Prüft, ob der Ankunftsort in der Zielregion existiert und zum Transportmittel passt.
+            System.out.println("Wohin mÃ¶chtest du fahren?");
+            // PrÃ¼ft, ob der Ankunftsort in der Zielregion existiert und zum Transportmittel passt.
             if(alterRaum.gibKategorie() == Raumkategorie.BAHNHOF){
-                System.out.println("Mögliche Regionen:" + aktuelleRegion.gibRegionAusgaengeZugAlsString());
+                System.out.println("MÃ¶gliche Regionen:" + aktuelleRegion.gibRegionAusgaengeZugAlsString());
             }
             else{
-                System.out.println("Mögliche Regionen:" + aktuelleRegion.gibRegionAusgaengeAutoAlsString());
+                System.out.println("MÃ¶gliche Regionen:" + aktuelleRegion.gibRegionAusgaengeAutoAlsString());
             }
         }
         Region naechsteRegion = spielumgebung.gibRegion(befehl.gibZweitesWort());
@@ -287,7 +384,7 @@ class Spiel implements ISpiel
         if(naechsteRegion != null){
             Raum ankunftsRaum = null;
 
-            // Prüfen ob die Zielregion ein Bahnhof/eine Autobahn hat
+            // PrÃ¼fen ob die Zielregion ein Bahnhof/eine Autobahn hat
             if (alterRaum.gibKategorie() == Raumkategorie.BAHNHOF && aktuelleRegion.istZugAusgang(naechsteRegion.gibBeschreibung())) {
                 ankunftsRaum = naechsteRegion.gibRaum("Bahnhof");
             } 
@@ -301,7 +398,7 @@ class Spiel implements ISpiel
             if (ankunftsRaum != null) {
                 aktuellerRaum = ankunftsRaum; // Wechsel zum neuen Raum
                 System.out.println("Du reist von " + alteRegion.gibBeschreibung() + " nach " + aktuelleRegion.gibBeschreibung() + ".");
-                // Belohne den Spieler für die Reise und erhöhe den Reisezähler.
+                // Belohne den Spieler fÃ¼r die Reise und erhÃ¶he den ReisezÃ¤hler.
                 spieler.aendereGeld(einkommenMultiplikator);
                 zugfahrtenCount +=1;
                 raumInfoAusgeben();
@@ -309,7 +406,7 @@ class Spiel implements ISpiel
             }
             else {
                 System.out.println("Reise fehlgeschlagen. Du bleibst in " + alteRegion.gibBeschreibung() + ".");
-                aktuelleRegion = alteRegion; // Zurück zur alten Region, da Ankunftsort ungültig
+                aktuelleRegion = alteRegion; // ZurÃ¼ck zur alten Region, da Ankunftsort ungÃ¼ltig
             }
         }
         else{
@@ -320,20 +417,20 @@ class Spiel implements ISpiel
     
     /**
      * Versucht, eine Energieanlage (Solar oder Wind) im aktuellen Raum zu bauen.
-     * Dies ist nur in Räumen vom Typ BauRaum möglich und erfordert
+     * Dies ist nur in RÃ¤umen vom Typ BauRaum mÃ¶glich und erfordert
      * Geld und eine Baugenehmigung.
-     * @param befehl Der Befehl, der den Anlagentyp enthält (z.B. "baue solar").
+     * @param befehl Der Befehl, der den Anlagentyp enthÃ¤lt (z.B. "baue solar").
      */
     private void baueAnlage(Befehl befehl) { 
-        // Prüft, ob im aktuellen Raum gebaut werden kann.
+        // PrÃ¼ft, ob im aktuellen Raum gebaut werden kann.
         if (!(aktuellerRaum instanceof BauRaum)) {
-            System.out.println("Hier (" + aktuellerRaum.gibBeschreibung() + ") können keine Anlagen gebaut werden.");
+            System.out.println("Hier (" + aktuellerRaum.gibBeschreibung() + ") kÃ¶nnen keine Anlagen gebaut werden.");
             return;
         }
         BauRaum bauRaum = (BauRaum) aktuellerRaum;
 
         if (!befehl.hatZweitesWort()) { 
-            System.out.println("Welche Art von Anlage soll gebaut werden? Verfügbar: 'solar' oder 'wind'."); 
+            System.out.println("Welche Art von Anlage soll gebaut werden? VerfÃ¼gbar: 'solar' oder 'wind'."); 
             System.out.println(bauRaum.gibAnlagenString()); // Zeige aktuelle Belegung
             return;
         }
@@ -343,9 +440,9 @@ class Spiel implements ISpiel
         int einkommenPlus = 0;
         boolean erfolgreich = false;
         
-        // Prüft, ob der Spieler eine Baugenehmigung hat.
+        // PrÃ¼ft, ob der Spieler eine Baugenehmigung hat.
         if(spieler.gibSpielerInventar().gibAnzahlItems("Baugenehmigung")>=1){
-            // Logik für den Bau einer Solaranlage.
+            // Logik fÃ¼r den Bau einer Solaranlage.
             if (anlagenArt.equals("solar")) 
             {
                 kosten = 10;
@@ -358,10 +455,10 @@ class Spiel implements ISpiel
                         System.out.println("Solaranlage konnte nicht gebaut werden. " + bauRaum.gibAnlagenString());
                     }
                 } else {
-                    System.out.println("Nicht genug Geld für eine Solaranlage. Benötigt: " + kosten + " Münzen.");
+                    System.out.println("Nicht genug Geld fÃ¼r eine Solaranlage. BenÃ¶tigt: " + kosten + " MÃ¼nzen.");
                 }
             } 
-            // Logik für den Bau einer Windanlage.
+            // Logik fÃ¼r den Bau einer Windanlage.
             else if (anlagenArt.equals("wind")) 
             {
                 kosten = 2;
@@ -374,10 +471,10 @@ class Spiel implements ISpiel
                         System.out.println("Windkraftanlage konnte nicht gebaut werden. " + bauRaum.gibAnlagenString());
                     }
                 } else {
-                    System.out.println("Nicht genug Geld für eine Windkraftanlage. Benötigt: " + kosten + " Münzen.");
+                    System.out.println("Nicht genug Geld fÃ¼r eine Windkraftanlage. BenÃ¶tigt: " + kosten + " MÃ¼nzen.");
                 }
             } else {
-                System.out.println("Es können nur 'solar'- oder 'wind'-Anlagen gebaut werden.");
+                System.out.println("Es kÃ¶nnen nur 'solar'- oder 'wind'-Anlagen gebaut werden.");
             }
         }
         else
@@ -390,14 +487,14 @@ class Spiel implements ISpiel
             spieler.aendereGeld(-kosten);
             spieler.gibSpielerInventar().removeItem("Baugenehmigung");
             einkommenMultiplikator += einkommenPlus;
-            System.out.println("Du erhältst nun " + einkommenPlus + " zusätzliche Münze(n) pro Bahnfahrt.");
+            System.out.println("Du erhÃ¤ltst nun " + einkommenPlus + " zusÃ¤tzliche MÃ¼nze(n) pro Bahnfahrt.");
             raumInfoAusgeben();
         }
         aktualisierePunkte();
     }
 
     /**
-     * Zählt alle gebauten Anlagen in der gesamten Spielwelt und berechnet
+     * ZÃ¤hlt alle gebauten Anlagen in der gesamten Spielwelt und berechnet
      * daraus die aktuelle Gesamtpunktzahl des Spielers.
      */
     private void aktualisierePunkte()
@@ -405,12 +502,12 @@ class Spiel implements ISpiel
         gesamtSolaranlagen = 0;
         gesamtWindanlagen = 0;
         HashMap<String, Region> regionenMap = spielumgebung.gibRegionenMap();
-        // Iteriere über alle Region-Objekte in der Map
+        // Iteriere Ã¼ber alle Region-Objekte in der Map
         for (Region region : regionenMap.values()) {
             HashMap<String, Raum> raeumeMap = region.gibRaeumeMap();
-            // Iteriere über alle Raum-Objekte in der Map
+            // Iteriere Ã¼ber alle Raum-Objekte in der Map
             for (Raum raum : raeumeMap.values()) {
-                // Prüfe, ob der Raum ein BauRaum ist
+                // PrÃ¼fe, ob der Raum ein BauRaum ist
                 if (raum instanceof BauRaum) {
                     BauRaum bauRaum = (BauRaum) raum;
                     gesamtSolaranlagen += bauRaum.gibAnlagenSolar();
@@ -424,18 +521,18 @@ class Spiel implements ISpiel
 
     /**
      * Versucht, einen Gegenstand vom Boden des aktuellen Raumes aufzuheben
-     * und dem Spielerinventar hinzuzufügen.
-     * @param befehl Der Befehl, der den Namen des aufzuhebenden Gegenstands enthält.
+     * und dem Spielerinventar hinzuzufÃ¼gen.
+     * @param befehl Der Befehl, der den Namen des aufzuhebenden Gegenstands enthÃ¤lt.
      */
     private void itemAufheben(Befehl befehl)
     {
         if (!befehl.hatZweitesWort()) {
-            System.out.println("Was möchtest du aufheben?");
+            System.out.println("Was mÃ¶chtest du aufheben?");
             return;
         }
         String itemName = befehl.gibZweitesWort();
 
-        // Prüft, ob im Raum überhaupt etwas zum Aufheben liegt.
+        // PrÃ¼ft, ob im Raum Ã¼berhaupt etwas zum Aufheben liegt.
         if (aktuellerRaum.gibInventar() == null || aktuellerRaum.gibInventar().istLeer()) {
             System.out.println("Hier gibt es nichts zum Aufheben.");
             return;
@@ -446,7 +543,7 @@ class Spiel implements ISpiel
         
         // Verschiebt das Item vom Raum zum Spieler.
         if (Inventar.bewegeItem(itemName, raumInventar, spielerInventar)) { //
-            System.out.println(itemName + " wurde zum Inventar hinzugefügt.");
+            System.out.println(itemName + " wurde zum Inventar hinzugefÃ¼gt.");
             raumInfoAusgeben();
         } else {
             System.out.println("Konnte " + itemName + " nicht aufheben. Ist es hier vorhanden?");

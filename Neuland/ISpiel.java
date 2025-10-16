@@ -10,5 +10,26 @@ import java.rmi.RemoteException;
 
 public interface ISpiel extends Remote
 {
-    void spielen() throws RemoteException;
+    /**
+     * Initialisiert das Spiel und liefert alle anfallenden Ausgaben als Text.
+     *
+     * @return gesammelte Konsolenausgaben der Initialisierung.
+     * @throws RemoteException falls ein Verbindungsfehler auftritt.
+     */
+    String start() throws RemoteException;
+
+    /**
+     * Verarbeitet einen einzelnen Spielbefehl.
+     *
+     * @param eingabe Der komplette Befehl als Textzeile.
+     * @return die bei der Verarbeitung angefallenen Ausgaben.
+     * @throws RemoteException falls ein Verbindungsfehler auftritt.
+     */
+    String verarbeiteBefehl(String eingabe) throws RemoteException;
+
+    /**
+     * @return {@code true}, wenn das Spiel beendet ist.
+     * @throws RemoteException falls ein Verbindungsfehler auftritt.
+     */
+    boolean istBeendet() throws RemoteException;
 }
